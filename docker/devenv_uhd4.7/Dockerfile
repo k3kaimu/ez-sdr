@@ -1,4 +1,4 @@
-FROM ghcr.io/k3kaimu/uhd:v4.7
+FROM ghcr.io/k3komatsu/uhd:v4.7
 
 # install bladeRF
 RUN <<EOF

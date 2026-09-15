@@ -3,6 +3,11 @@ name: Build and Push Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:
+
+env:
+  # このUHDバージョンのイメージが :latest と :<リリースタグ> にもなる
+  DEFAULT_UHD: "4.7"
 
 jobs:
   build-and-push:
@@ -11,6 +16,29 @@ jobs:
     permissions:
       contents: read
       packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # runtimeはそのUHDイメージのUbuntuバージョンに合わせる
+        # (ldd由来のglibc等をそのまま使うため、ずれると起動しない)
+        # ldcは26.04ではlibxml2.so.2が無く1.40以前が動かないため1.41.0を使う
+        include:
+          - uhd: "4.7"
+            runtime: ubuntu:24.04
+            ldc: "1.39.0"
+          - uhd: "4.8"
+            runtime: ubuntu:24.04
+            ldc: "1.39.0"
+          - uhd: "4.9"
+            runtime: ubuntu:24.04
+            ldc: "1.39.0"
+          - uhd: "4.10"
+            runtime: ubuntu:26.04
+            ldc: "1.41.0"
+          - uhd: "4.11"
+            runtime: ubuntu:26.04
+            ldc: "1.41.0"
 
     steps:
       # リポジトリのチェックアウト
@@ -29,6 +57,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # リリースならタグ名、手動実行ならブランチ名をイメージのバージョンに使う
+      - name: Resolve image version
+        id: ver
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: echo "value=${RELEASE_TAG:-$REF_NAME}" >> "$GITHUB_OUTPUT"
+
       # Dockerイメージのビルドとプッシュ
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v4
@@ -36,6 +72,12 @@ jobs:
           context: .
           file: ./docker/v3_prebuild/Dockerfile  # Dockerfileのパスを指定
           push: true
+          build-args: |
+            UHD_VERSION=v${{ matrix.uhd }}
+            RUNTIME_IMAGE=${{ matrix.runtime }}
+            LDC_VERSION=${{ matrix.ldc }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/ezsdr:latest
-            ghcr.io/${{ github.repository_owner }}/ezsdr:${{ github.event.release.tag_name }}
+            ghcr.io/${{ github.repository_owner }}/ezsdr:uhd${{ matrix.uhd }}
+            ghcr.io/${{ github.repository_owner }}/ezsdr:${{ steps.ver.outputs.value }}_uhd${{ matrix.uhd }}
+            ${{ matrix.uhd == env.DEFAULT_UHD && format('ghcr.io/{0}/ezsdr:latest', github.repository_owner) || '' }}
+            ${{ matrix.uhd == env.DEFAULT_UHD && format('ghcr.io/{0}/ezsdr:{1}', github.repository_owner, steps.ver.outputs.value) || '' }}
